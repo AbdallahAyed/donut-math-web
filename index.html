@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Donut</title>
+    <style>
+      :root {
+        --bg: #0a0c0d;
+        --panel: #121516;
+        --line: #23282a;
+        --text: #c9d1d3;
+        --text-dim: #6b7476;
+        --accent: #ffb545;
+        --accent-dim: #7a5420;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 24px;
+        min-height: 100%;
+      }
+
+      .stage {
+        position: relative;
+        width: min(100%, 760px);
+        aspect-ratio: 16 / 10;
+        background: #000;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .title {
+        position: absolute;
+        top: 12px;
+        left: 16px;
+        font-size: 12px;
+        color: var(--text-dim);
+        letter-spacing: 0.02em;
+        pointer-events: none;
+      }
+
+      .controls {
+        width: min(100%, 760px);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 16px 18px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 14px 20px;
+        font-size: 13px;
+      }
+
+      .control {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .control label {
+        display: flex;
+        justify-content: space-between;
+        color: var(--text-dim);
+        font-size: 12px;
+      }
+
+      .control label span.value {
+        color: var(--text);
+      }
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 3px;
+        background: var(--line);
+        border-radius: 2px;
+        outline-offset: 4px;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: var(--accent);
+        cursor: pointer;
+        margin-top: -5px;
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 13px;
+        height: 13px;
+        border: none;
+        border-radius: 50%;
+        background: var(--accent);
+        cursor: pointer;
+      }
+
+      input[type="color"] {
+        width: 100%;
+        height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        background: none;
+        padding: 2px;
+        cursor: pointer;
+      }
+
+      button {
+        font-family: inherit;
+        font-size: 12px;
+        color: var(--text);
+        background: #1a1e20;
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        padding: 8px 10px;
+        cursor: pointer;
+        align-self: end;
+      }
+
+      button:hover {
+        border-color: var(--accent-dim);
+      }
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--accent);
+      }
+
+      .note {
+        grid-column: 1 / -1;
+        color: var(--text-dim);
+        font-size: 11px;
+        padding-top: 2px;
+        border-top: 1px solid var(--line);
+        margin-top: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <span class="title">donut.js</span>
+      <canvas id="donut"></canvas>
+    </div>
+
+    <div class="controls">
+      <div class="control">
+        <label for="speed"
+          >Spin speed <span class="value" id="speedValue">1.0×</span></label
+        >
+        <input type="range" id="speed" min="0" max="3" step="0.1" value="1" />
+      </div>
+      <div class="control">
+        <label for="tube"
+          >Tube thickness <span class="value" id="tubeValue">1.0</span></label
+        >
+        <input
+          type="range"
+          id="tube"
+          min="0.3"
+          max="1.8"
+          step="0.05"
+          value="1.0"
+        />
+      </div>
+      <div class="control">
+        <label for="hole"
+          >Hole size <span class="value" id="holeValue">2.0</span></label
+        >
+        <input
+          type="range"
+          id="hole"
+          min="1.2"
+          max="3.2"
+          step="0.1"
+          value="2.0"
+        />
+      </div>
+      <div class="control">
+        <label for="shadow">Shadow color</label>
+        <input type="color" id="shadow" value="#781e00" />
+      </div>
+      <div class="control">
+        <label for="highlight">Highlight color</label>
+        <input type="color" id="highlight" value="#ffdc50" />
+      </div>
+      <div class="control">
+        <button id="toggle">Pause</button>
+      </div>
+      <p class="note">
+        Same math as the terminal version: a torus swept by two angles,
+        projected with perspective divide, z-buffered, and shaded by the dot
+        product between each surface normal and a fixed light direction.
+      </p>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        const canvas = document.getElementById("donut");
+        const ctx = canvas.getContext("2d");
+        const brightnessRamp = ".,-~:;=!*#$@";
+        const twoPi = Math.PI * 2;
+
+        // ---- tunable state, driven by the controls below ----
+        const state = {
+          tubeRadius: 1.0, // R1
+          centerRadius: 2.0, // R2
+          viewerDistance: 5.0, // K2
+          speedMultiplier: 1.0,
+          shadow: hexToRgb("#781e00"),
+          highlight: hexToRgb("#ffdc50"),
+          playing: true,
+        };
+
+        let rotationX = 0;
+        let rotationZ = 0;
+
+        // ---- grid / canvas sizing ----
+        let cellWidth = 8;
+        let cellHeight = 14;
+        let cols = 0;
+        let rows = 0;
+        let fontPx = 14;
+
+        function resize() {
+          const rect = canvas.parentElement.getBoundingClientRect();
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = Math.floor(rect.width * dpr);
+          canvas.height = Math.floor(rect.height * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+          fontPx = Math.max(9, Math.floor(rect.width / 90));
+          ctx.font = `${fontPx}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+          cellWidth = ctx.measureText("#").width;
+          cellHeight = fontPx * 1.0;
+
+          cols = Math.floor(rect.width / cellWidth);
+          rows = Math.floor(rect.height / cellHeight);
+        }
+
+        window.addEventListener("resize", resize);
+        resize();
+
+        function hexToRgb(hex) {
+          const n = parseInt(hex.slice(1), 16);
+          return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+        }
+
+        // ---- torus sampling: identical math to the C++ Torus::sample ----
+        function sampleTorus(theta, phi, cosA, sinA, cosB, sinB, out) {
+          const cosTheta = Math.cos(theta),
+            sinTheta = Math.sin(theta);
+          const cosPhi = Math.cos(phi),
+            sinPhi = Math.sin(phi);
+          const ringRadius = state.centerRadius + state.tubeRadius * cosTheta;
+
+          out.px =
+            ringRadius * (cosB * cosPhi + sinA * sinB * sinPhi) -
+            state.tubeRadius * sinTheta * cosA * sinB;
+          out.py =
+            ringRadius * (cosPhi * sinB - cosB * sinA * sinPhi) +
+            state.tubeRadius * sinTheta * cosA * cosB;
+          out.pz =
+            cosA * ringRadius * sinPhi + state.tubeRadius * sinTheta * sinA;
+
+          out.nx =
+            cosTheta * (cosB * cosPhi + sinA * sinB * sinPhi) -
+            sinTheta * cosA * sinB;
+          out.ny =
+            cosTheta * (cosPhi * sinB - cosB * sinA * sinPhi) +
+            sinTheta * cosA * cosB;
+          out.nz = cosA * cosTheta * sinPhi + sinTheta * sinA;
+        }
+
+        const sample = { px: 0, py: 0, pz: 0, nx: 0, ny: 0, nz: 0 };
+
+        function renderFrame() {
+          if (cols === 0 || rows === 0) return;
+
+          const focalLength =
+            (cols * state.viewerDistance * 3) /
+            (8 * (state.tubeRadius + state.centerRadius)) /
+            1.5;
+          const inverseDepthBuffer = new Float64Array(cols * rows);
+          const glyphGrid = new Array(cols * rows).fill(" ");
+          const colorGrid = new Array(cols * rows).fill(null);
+
+          const cosA = Math.cos(rotationX),
+            sinA = Math.sin(rotationX);
+          const cosB = Math.cos(rotationZ),
+            sinB = Math.sin(rotationZ);
+
+          const thetaStep = 0.07;
+          const phiStep = 0.02;
+
+          for (let theta = 0; theta < twoPi; theta += thetaStep) {
+            for (let phi = 0; phi < twoPi; phi += phiStep) {
+              sampleTorus(theta, phi, cosA, sinA, cosB, sinB, sample);
+
+              const depth = sample.pz + state.viewerDistance;
+              const inverseDepth = 1 / depth;
+
+              const screenX = Math.floor(
+                cols / 2 + focalLength * inverseDepth * sample.px,
+              );
+              const screenY = Math.floor(
+                rows / 2 - focalLength * inverseDepth * sample.py * 0.5,
+              );
+
+              if (
+                screenX < 0 ||
+                screenX >= cols ||
+                screenY < 0 ||
+                screenY >= rows
+              )
+                continue;
+
+              const luminance = sample.nx * 0 + sample.ny * 1 + sample.nz * -1; // dot with light (0,1,-1)
+              if (luminance <= 0) continue;
+
+              const index = screenY * cols + screenX;
+              if (inverseDepth <= inverseDepthBuffer[index]) continue;
+              inverseDepthBuffer[index] = inverseDepth;
+
+              const brightness = luminance / Math.SQRT2;
+              const rampIndex = Math.min(
+                brightnessRamp.length - 1,
+                Math.floor(brightness * (brightnessRamp.length - 1)),
+              );
+              glyphGrid[index] = brightnessRamp[rampIndex];
+              colorGrid[index] = {
+                r: Math.round(
+                  state.shadow.r +
+                    (state.highlight.r - state.shadow.r) * brightness,
+                ),
+                g: Math.round(
+                  state.shadow.g +
+                    (state.highlight.g - state.shadow.g) * brightness,
+                ),
+                b: Math.round(
+                  state.shadow.b +
+                    (state.highlight.b - state.shadow.b) * brightness,
+                ),
+              };
+            }
+          }
+
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.textBaseline = "top";
+          let lastColorKey = null;
+          for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+              const index = row * cols + col;
+              const glyph = glyphGrid[index];
+              if (glyph === " ") continue;
+              const c = colorGrid[index];
+              const key = c.r + "," + c.g + "," + c.b;
+              if (key !== lastColorKey) {
+                ctx.fillStyle = `rgb(${key})`;
+                lastColorKey = key;
+              }
+              ctx.fillText(glyph, col * cellWidth, row * cellHeight);
+            }
+          }
+        }
+
+        let previousTime = performance.now();
+
+        function tick(now) {
+          const elapsedSeconds = Math.min(0.1, (now - previousTime) / 1000);
+          previousTime = now;
+
+          if (state.playing) {
+            const rotationXSpeed = (0.04 / (1 / 30)) * state.speedMultiplier;
+            const rotationZSpeed = (0.02 / (1 / 30)) * state.speedMultiplier;
+            rotationX += rotationXSpeed * elapsedSeconds;
+            rotationZ += rotationZSpeed * elapsedSeconds;
+            renderFrame();
+          }
+
+          requestAnimationFrame(tick);
+        }
+
+        // ---- wire up controls ----
+        const speedInput = document.getElementById("speed");
+        const speedValue = document.getElementById("speedValue");
+        speedInput.addEventListener("input", () => {
+          state.speedMultiplier = parseFloat(speedInput.value);
+          speedValue.textContent = state.speedMultiplier.toFixed(1) + "×";
+        });
+
+        const tubeInput = document.getElementById("tube");
+        const tubeValue = document.getElementById("tubeValue");
+        tubeInput.addEventListener("input", () => {
+          state.tubeRadius = parseFloat(tubeInput.value);
+          tubeValue.textContent = state.tubeRadius.toFixed(2);
+        });
+
+        const holeInput = document.getElementById("hole");
+        const holeValue = document.getElementById("holeValue");
+        holeInput.addEventListener("input", () => {
+          state.centerRadius = parseFloat(holeInput.value);
+          holeValue.textContent = state.centerRadius.toFixed(1);
+        });
+
+        document.getElementById("shadow").addEventListener("input", (e) => {
+          state.shadow = hexToRgb(e.target.value);
+        });
+        document.getElementById("highlight").addEventListener("input", (e) => {
+          state.highlight = hexToRgb(e.target.value);
+        });
+
+        const toggleButton = document.getElementById("toggle");
+        toggleButton.addEventListener("click", () => {
+          state.playing = !state.playing;
+          toggleButton.textContent = state.playing ? "Pause" : "Play";
+        });
+
+        // Respect reduced-motion preference: start paused if requested.
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          state.playing = false;
+          toggleButton.textContent = "Play";
+        }
+
+        renderFrame();
+        requestAnimationFrame(tick);
+      })();
+    </script>
+  </body>
+</html>
